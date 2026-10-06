@@ -433,7 +433,7 @@
                     <div class="bg-white/95 p-4 rounded-xl border border-sky-50 shadow-sm">
                         <h3 class="font-bold text-sky-700 text-sm mb-2">2. 人資管理系統：訓練 × 授權</h3>
                         <p class="font-mono bg-sky-50/50 border border-sky-100 p-2 rounded text-[10px] text-sky-700 mb-2">技能存量 SK = 0.5×SK上季 + 0.5×T；授權效果 = E×(SK−40)/60</p>
-                        <p>訓練有一半要到下一季才發酵。技能未達 40 時授權反而有害；授權超過 70 則出現「甜心交易」成本。人資實務是一個系統，組合得好才有綜效（Hogreve et al., 2022 修正方向①③）。</p>
+                        <p>訓練有一半要到下一季才發酵。技能未達 40 時授權反而有害（Q1 傳奇補救也需技能存量 ≥ 40 才能解鎖）；授權超過 70 則出現「甜心交易」成本。人資實務是一個系統，組合得好才有綜效（Hogreve et al., 2022 修正方向①③）。</p>
                     </div>
                     <div class="bg-white/95 p-4 rounded-xl border border-sky-50 shadow-sm">
                         <h3 class="font-bold text-indigo-700 text-sm mb-2">3. 外部服務品質與「內向」風險</h3>
@@ -461,7 +461,7 @@
 
         <!-- 頁腳 -->
         <footer class="border-t border-sky-100 bg-white py-4 text-center text-xs text-slate-400">
-            <p>© 2026 Grand Jodus 礁溪會館模擬教育系統｜文獻：Heskett et al. (1994)；Hogreve et al. (2017, 2022)｜v2 文獻修正版</p>
+            <p>© 2026 Grand Jodus 礁溪會館模擬教育系統｜文獻：Heskett et al. (1994)；Hogreve et al. (2017, 2022)｜v2.1 文獻修正版</p>
         </footer>
     </div>
 
@@ -669,6 +669,7 @@
         let eventCLModifier = 0;      // 顧客忠誠直接修飾（AI 疏離）
         let eventLoadModifier = 0;    // 工作負荷修飾
         let ownedLossMultiplier = 1;  // 員工帶走顧客的倍率（忠誠對象）
+        let eventSKModifier = 0;      // 技能存量修飾（證照培訓／骨幹流失）
         let currentChoice = "—";
         const BASE_BUDGET_CAP = 9000000;
         let budgetCap = BASE_BUDGET_CAP;
@@ -780,22 +781,24 @@
             let lastTR = last.TR / 100;
 
             // A. 技能存量：訓練有一半效果延到下一季（時間落差）
-            let SK = 0.5 * last.SK + 0.5 * decT;
+            let SK = clampV(0.5 * last.SK + 0.5 * decT + eventSKModifier, 0, 100);
+            // 實質薪資：Q3 全面加薪 12% 後，同一滑桿值代表更高的實質待遇
+            let Ce = Math.min(100, decC * permanentCModifier);
             let SKe = satCurve(SK, 45);
 
             // B. 員工滿意：薪資與訓練邊際遞減＋顧客回饋員工（Shepherd et al., 2020，轉引）＋降薪懲罰
-            let rawES = 0.65 * satCurve(decC, 30) + 0.35 * satCurve(decT, 50);
+            let rawES = 0.65 * satCurve(Ce, 30) + 0.35 * satCurve(decT, 50);
             let payCutPenalty = decC < last.C ? (last.C - decC) * 1.8 : 0;
             let feedbackES = 0.1 * (last.CS - 50);
             let es = clampV(0.4 * last.ES + 0.6 * rawES + feedbackES + eventESModifier - payCutPenalty, 0, 100);
 
             // C. 員工福祉：人力缺口造成的工作負荷（Hogreve et al., 2022 修正方向②）
             let workload = clampV(25 + 50 * Math.min(lastTR, 1.5) / 1.5 + eventLoadModifier, 0, 100);
-            let rawWB = 0.5 * satCurve(decC, 40) + 0.5 * (100 - workload);
+            let rawWB = 0.5 * satCurve(Ce, 40) + 0.5 * (100 - workload);
             let wb = clampV(0.4 * last.WB + 0.6 * rawWB + eventWBModifier, 0, 100);
 
             // D. 員工留任與流動率
-            let el = clampV(0.08 + 0.42 * es / 100 + 0.25 * wb / 100 + 0.2 * satCurve(decC, 40) / 100, 0.15, 0.95);
+            let el = clampV(0.08 + 0.42 * es / 100 + 0.25 * wb / 100 + 0.2 * satCurve(Ce, 40) / 100, 0.15, 0.95);
             let tr = clampV((1 - el) * 2, 0.1, 2.0);
 
             // E. 員工生產力：內部服務品質（技能）直接影響生產力（Hogreve et al., 2017）
@@ -875,6 +878,7 @@
             eventCLModifier = 0;
             eventLoadModifier = 0;
             ownedLossMultiplier = 1;
+            eventSKModifier = 0;
             currentChoice = "—";
 
             if (currentQuarter === 1) {
@@ -946,8 +950,8 @@
         // Q1 Event: VVIP 紅酒污漬危機
         function showQ1Event() {
             let skillNow = 0.5 * history[history.length - 1].SK + 0.5 * T;
-            let isLocked = (E < 50 || skillNow < 30);
-            let lockMsg = `（需要前線授權 ≥ 50 且技能存量 ≥ 30；目前技能存量約 ${Math.round(skillNow)}。訓練有一半效果要到下一季才發酵，臨時抱佛腳來不及。）`;
+            let isLocked = (E < 50 || skillNow < 40);
+            let lockMsg = `（需要前線授權 ≥ 50 且技能存量 ≥ 40；目前技能存量約 ${Math.round(skillNow)}。技能存量未達 40 時授權反而會被濫用。訓練有一半效果要到下一季才發酵，第一季訓練需達 70 以上才來得及。）`;
             
             showEventModal(
                 `<i class="fa-solid fa-wine-glass-empty text-rose-500 mr-2"></i>【關鍵時刻 MOT】VVIP 紅酒污漬危機`,
@@ -975,7 +979,7 @@
                     },
                     {
                         label: "方案 C",
-                        text: "【僵化流程指引】告知顧客這需要週一走總部保險理賠程序。顧客在現場等待 30 分鐘後暴怒離店，並在網路留下惡劣的一星負評，引發蘭陽平原旅遊社群的公關危機。",
+                        text: "【依規定流程處理】依公司規定，請顧客填寫事故單，週一由總部保險理賠窗口統一處理；現場人員不做額外補償，以避免開立先例。",
                         locked: false,
                         action: () => {
                             eventCSModifier = -15;
@@ -989,9 +993,13 @@
 
         // Q2 Event: 員工集體過勞與流失警訊
         function showQ2Event() {
+            let lastTR = history[history.length - 1].TR;
+            let q2Context = lastTR >= 70
+                ? `由於流動率仍高達 ${Math.round(lastTR)}%，Grand Jodus 礁溪旗艦店的前線人力缺額高達 30%。現有的忠誠員工因為頻繁加班、承擔雙倍工作，士氣跌入谷底，私下醞釀在下週末礁溪特大溫泉美食祭活動中「集體請病假怠工」。`
+                : `雖然流動率已降到 ${Math.round(lastTR)}%，但溫泉旺季訂房暴增，新進人員仍在訓練期，前線人力依舊吃緊。資深員工連續加班、承擔雙倍工作，開始出現倦怠與「集體請病假」的耳語，時間點正好是下週末的礁溪特大溫泉美食祭。`;
             showEventModal(
                 `<i class="fa-solid fa-users-viewfinder text-sky-600 mr-2"></i>【HR 內部危機】礁溪會館爆發嚴重過勞潮`,
-                `<b>情境：</b> 由於前兩季的極高流動率，Grand Jodus 目前礁溪旗艦店的前線人力編制缺額高達 30%。現有的忠誠員工因為頻繁加班、承擔雙倍工作，士氣跌入谷底，私下醞釀在下週末礁溪特大溫泉美食祭活動中「集體請病假怠工」。<br><br><b>作為總經理，你必須立刻平息內部風暴：</b>`,
+                `<b>情境：</b> ${q2Context}<br><br><b>作為總經理，你必須立刻平息內部風暴：</b>`,
                 [
                     {
                         label: "方案 A",
@@ -999,7 +1007,6 @@
                         locked: false,
                         action: () => {
                             eventESModifier = 10;
-                            eventLoadModifier = 5; // 加班撐住，但工作負荷仍高
                             extraCostThisQuarter = 500000; // 額外加班與補貼支出
                         }
                     },
@@ -1012,7 +1019,7 @@
                             eventWBModifier = 15;    // 福祉明顯改善（Hogreve 修正方向②）
                             eventLoadModifier = -20;
                             eventCSModifier = 5;
-                            eventRevenueModifier = -900000; // 營收損失
+                            eventRevenueModifier = -1800000; // 關閉 15% 客房與降低翻桌、入池人次的營收損失
                         }
                     },
                     {
@@ -1031,18 +1038,22 @@
 
         // Q3 Event: 競爭對手高薪挖角戰
         function showQ3Event() {
+            let skNow = history[history.length - 1].SK;
+            let q3Target = skNow >= 40
+                ? `點名挖角你們剛培訓完成、已能獨當一面的一線骨幹與溫泉主管`
+                : `點名挖角少數仍留在館內、熟悉在地熟客的資深員工與溫泉主管`;
             showEventModal(
                 `<i class="fa-solid fa-handshake-simple text-sky-600 mr-2"></i>【礁溪人才保衛戰】競爭對手惡意挖角`,
-                `<b>情境：</b> 礁溪新開了一家大型日式奢華溫泉酒店，在該酒店開幕前夕，其人力資源總監正以高出市場均值 20% 的高薪、加上優厚年終，點名挖角你們剛培訓完成的優秀一線骨幹與溫泉主管。<br><br><b>您的黃金前線團隊面臨被集體瓦解的危險：</b>`,
+                `<b>情境：</b> 礁溪新開了一家大型日式奢華溫泉酒店，在該酒店開幕前夕，其人力資源總監正以高出市場均值 20% 的高薪、加上優厚年終，${q3Target}。<br><br><b>您的黃金前線團隊面臨被集體瓦解的危險：</b>`,
                 [
                     {
                         label: "方案 A",
-                        text: "【全面跟進調薪與卓越留任計畫】宣布全體一線員工立刻加薪 12%，並提供為期一年的「卓越留任獎金」NT$ 45,000 元/人。",
+                        text: "【全面跟進調薪與卓越留任計畫】宣布全體一線員工立刻永久加薪 12%，並提供為期一年的「卓越留任獎金」NT$ 45,000 元/人（分四季發放）。",
                         locked: false,
                         action: () => {
-                            permanentCModifier = 1.15; 
-                            extraCostThisQuarter = 800000; 
-                            eventESModifier = 20; 
+                            permanentCModifier = 1.12;     // 永久加薪 12%：實質薪資與薪資成本同步提高
+                            extraCostThisQuarter = 562500; // 留任獎金 45,000 × 50 人 ÷ 4 季
+                            eventESModifier = 15; 
                         }
                     },
                     {
@@ -1052,6 +1063,7 @@
                         action: () => {
                             eventESModifier = 8;
                             ownedLossMultiplier = 0.5; // 留住骨幹，熟客較不會跟著走
+                            eventSKModifier = 5;       // 證照與款待培訓提升技能存量
                             extraCostThisQuarter = 350000; 
                         }
                     },
@@ -1063,6 +1075,7 @@
                             eventESModifier = -15;
                             eventCSModifier = -12;
                             ownedLossMultiplier = 2.5; // 骨幹離職，忠於員工的熟客跟著流失
+                            eventSKModifier = -10;     // 骨幹帶走技能
                         }
                     }
                 ]
@@ -1133,22 +1146,24 @@
                 feedback = `<span class="text-rose-600 font-bold block mb-1">🚨 警報：員工對降薪發起強烈抗議！</span>您在本季把薪資從 ${prev.C} 降到 ${results.C}。資深領班私下串聯準備離職，一線同仁出現「無聲罷工」，顧客抱怨服務冷淡推諉。省下的薪資，很快被流動率反彈帶來的招募成本與口碑損失吃掉。`;
             } else if (currentQuarter === 1) {
                 feedback = results.choice === "方案 A"
-                    ? `紅酒危機被前線員工漂亮化解，VVIP 在社群上主動稱讚，宴會與商務訂單回流。但薪資與訓練投入讓本季財報仍承受壓力。`
+                    ? (results.netProfit >= 0
+                        ? `紅酒危機被前線員工漂亮化解，VVIP 在社群上主動稱讚，宴會與商務訂單回流。前期累積的訓練讓授權發揮效果，本季已轉為獲利。`
+                        : `紅酒危機被前線員工漂亮化解，VVIP 在社群上主動稱讚，宴會與商務訂單回流。不過薪資與訓練投入仍讓本季財報承受壓力。`)
                     : (results.choice === "方案 C"
-                        ? `顧客等待 30 分鐘後暴怒離店，一星負評在蘭陽旅遊社群擴散，散客退房、前線士氣更低。`
+                        ? `顧客在現場等了 30 分鐘，得知要等週一才處理後暴怒離店，並在網路留下一星負評，引發蘭陽旅遊社群的公關危機。散客退房，被指責的前線同仁士氣更低。`
                         : `領班以免單暫時安撫顧客，但後續賠償要等法務審核，顧客觀感普通，口碑沒有加分。`);
             } else if (currentQuarter === 2) {
                 feedback = results.choice === "方案 B"
-                    ? `暫時減少接客量後，前線終於喘口氣，福祉明顯回升，服務也更從容；代價是本季營收減少。`
+                    ? `暫時減少接客量後，前線終於喘口氣，福祉明顯回升，服務也更從容；代價是本季營收減少約 180 萬。`
                     : (results.choice === "方案 A"
-                        ? `加班費與餐補暫時穩住軍心，活動順利撐過，但人力缺口與工作負荷仍在，福祉改善有限。`
+                        ? `加班費與餐補暫時穩住軍心，活動順利撐過，本季營收沒有受影響；但人力缺口與工作負荷仍在，福祉改善有限。`
                         : `「共體時艱」被員工解讀為畫大餅，資深主管帶隊離職，派遣工補位讓週末大排長龍。`);
             } else if (currentQuarter === 3) {
                 feedback = results.choice === "方案 C"
-                    ? `骨幹員工被大量挖走，而且許多熟客是「衝著某位管家」而來，跟著員工一起流向對手。`
+                    ? `骨幹員工被大量挖走，帶走了累積的服務技能；許多熟客是「衝著某位管家」而來，也跟著員工流向對手。`
                     : (results.choice === "方案 B"
-                        ? `升遷通道與證照補助留住了多數骨幹，熟客關係也得以延續。`
-                        : `全面加薪留住了人，但薪資成本從此永久墊高約 15%，之後每季的預算空間都會更緊。`);
+                        ? `升遷通道與證照補助留住了多數骨幹，熟客關係得以延續，證照培訓也進一步提升了團隊技能。`
+                        : `全面加薪留住了人，實質待遇提高也讓之後各季更容易留任；但薪資成本從此永久墊高 12%。<b>提醒：第四季同樣的薪資滑桿，人資支出會高出 12%，請確認仍在預算上限內。</b>`);
             } else if (currentQuarter === 4) {
                 feedback = results.choice === "方案 A"
                     ? `AI 全面上線，本季人事成本立即下降。但員工擔心被取代、士氣下滑；顧客找不到真人，抱怨「飯店變冷了」，部分熟客不再回訪。`
@@ -1165,8 +1180,8 @@
             if (results.owned > 3) signals.push(`🚪 <b>員工帶走顧客：</b>流動率偏高，忠於個別員工的熟客隨之流失（修正方向③）。`);
             if (results.qualityCost > 300000) signals.push(`💸 <b>品質報酬遞減：</b>外部服務品質已達 ${Math.round(results.ESQ)}，本季品質維持成本約 NT$ ${Math.round(results.qualityCost).toLocaleString()}，不是每位顧客都願意為更高品質付費（Hogreve et al., 2017）。`);
             if (results.WB < 40) signals.push(`🥵 <b>福祉偏低：</b>人力缺口讓工作負荷居高不下，即使滿意度回升，留任與生產力仍受拖累（修正方向②）。`);
-            if (results.cap < budgetCapBefore) signals.push(`📉 <b>預算縮減：</b>虧損擴大，董事會把下季人資預算上限降為 NT$ ${Math.round(results.cap).toLocaleString()}（失敗循環）。`);
-            if (results.cap > budgetCapBefore) signals.push(`📈 <b>預算放寬：</b>本季獲利，董事會把下季人資預算上限提高為 NT$ ${Math.round(results.cap).toLocaleString()}（成功循環）。`);
+            if (currentQuarter < totalQuarters && results.cap < budgetCapBefore) signals.push(`📉 <b>預算縮減：</b>虧損擴大，董事會把下季人資預算上限降為 NT$ ${Math.round(results.cap).toLocaleString()}（失敗循環）。`);
+            if (currentQuarter < totalQuarters && results.cap > budgetCapBefore) signals.push(`📈 <b>預算放寬：</b>本季獲利，董事會把下季人資預算上限提高為 NT$ ${Math.round(results.cap).toLocaleString()}（成功循環）。`);
             if (signals.length) feedback += `<span class="block mt-2 pt-2 border-t border-sky-100 font-bold text-sky-800">本季模型訊號</span>` + signals.map(s => `<span class="block mt-1">${s}</span>`).join("");
 
             // --- 學術點評 ---
@@ -1329,6 +1344,7 @@
             eventCLModifier = 0;
             eventLoadModifier = 0;
             ownedLossMultiplier = 1;
+            eventSKModifier = 0;
             currentChoice = "—";
             budgetCap = BASE_BUDGET_CAP;
             budgetCapBefore = BASE_BUDGET_CAP;
