@@ -1,4 +1,4 @@
-# Grand Jodus 宜蘭礁溪會館：服務利潤鏈（Service-Profit Chain）沙盤模擬遊戲
+# Grand Jodus 宜蘭礁溪會館：服務利潤鏈（Service-Profit Chain）模擬遊戲
 
 本專案為哈佛商學院（HBS）詹姆斯·赫斯克特（James L. Heskett）教授等人提出的**「服務利潤鏈（Service-Profit Chain）」**教學實戰沙盤。透過情境模擬與博弈決策，將抽象的管理學理論轉化為具備衝突感、預算兩難與時間滯後性的商業實驗室。
 
